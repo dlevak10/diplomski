@@ -1,0 +1,16 @@
+Test skup: 2_Test_logs_combiend_labeled.csv
+Broj zapisa: 8154
+Loss: 0.0850
+Accuracy: 97.99%
+Vrijeme testiranja: 0 min 3.97 s
+
+              precision    recall  f1-score   support
+
+ Brute Force       0.97      1.00      0.98       531
+        DDoS       1.00      1.00      1.00       900
+      Normal       0.97      1.00      0.98      5009
+   Port Scan       1.00      0.91      0.95      1714
+
+    accuracy                           0.98      8154
+   macro avg       0.98      0.98      0.98      8154
+weighted avg       0.98      0.98      0.98      8154

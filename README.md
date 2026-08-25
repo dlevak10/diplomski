@@ -73,6 +73,4 @@ cd "C:\Users\Administrator\Desktop\TFPU\2. Godina\Diplomski\eksperiment_model"
 python 1_text_cnn_trening.py
 ```
 
-## Napomena
 
-CSV datoteke, virtualna okruzenja, cache direktoriji i spremljeni modeli smatraju se generiranim ili lokalnim artefaktima te nisu namijenjeni za verzioniranje u Git repozitoriju.
