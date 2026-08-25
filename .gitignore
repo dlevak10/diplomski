@@ -20,14 +20,12 @@ build/
 *.egg-info/
 
 # Model artifacts
-model_artifacts/
-*.pth
-*.pt
-*.onnx
+#model_artifacts/
+#*.pth
+#*.pt
+#*.onnx
 
 # Generated datasets and logs
-firewall_logs_labeled/*.csv
-firewall_logs_unlabeled/*.csv
 *.log
 
 # Local notebooks and temporary files
