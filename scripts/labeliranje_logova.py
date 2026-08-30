@@ -3,7 +3,7 @@ from pathlib import Path
 import pandas as pd
 
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 INPUT_DIR = BASE_DIR / "firewall_logs_unlabeled"
 OUTPUT_DIR = BASE_DIR / "firewall_logs_labeled"
 

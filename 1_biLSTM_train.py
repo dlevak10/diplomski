@@ -2,18 +2,20 @@ from collections import Counter
 from pathlib import Path
 import time
 
-import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.preprocessing import LabelEncoder
 from torch.utils.data import DataLoader, Dataset
 
 
 BASE_DIR = Path(__file__).resolve().parent
-TRAIN_CSV = BASE_DIR / "firewall_logs_labeled" / "1_Train_logs_combiend_labeled.csv"
+TRAIN_CSV = BASE_DIR / "firewall_logs_labeled" / "1_train_logs_combined_labeled.csv"
 ARTIFACT_DIR = BASE_DIR / "model_artifacts"
+
+MODEL_PATH = ARTIFACT_DIR / "bilstm_model_trained.pth"
+VOCAB_PATH = ARTIFACT_DIR / "bilstm_vocab_trained.pth"
+LABEL_ENCODER_PATH = ARTIFACT_DIR / "bilstm_label_encoder_trained.pth"
 
 LABEL_COLUMN = "label"
 MAX_SEQUENCE_LENGTH = 64
@@ -131,31 +133,15 @@ def encode_text(text: str, vocab: dict[str, int], max_len: int) -> torch.Tensor:
     return torch.tensor(indices, dtype=torch.long)
 
 
-def normalize_numeric_features(df: pd.DataFrame) -> tuple[np.ndarray, StandardScaler]:
-    numeric_df = df[NUMERIC_COLUMNS].replace("-", 0).copy()
-
-    for column in NUMERIC_COLUMNS:
-        numeric_df[column] = pd.to_numeric(numeric_df[column], errors="coerce").fillna(0)
-
-    numeric_df["bytes"] = np.log1p(numeric_df["bytes"])
-    numeric_df["packets"] = np.log1p(numeric_df["packets"])
-
-    scaler = StandardScaler()
-    numeric_features = scaler.fit_transform(numeric_df).astype(np.float32)
-    return numeric_features, scaler
-
-
 class FirewallLogDataset(Dataset):
     def __init__(
         self,
         texts: list[str],
-        numeric_features: np.ndarray,
-        labels: np.ndarray,
+        labels: list[int],
         vocab: dict[str, int],
         max_len: int = MAX_SEQUENCE_LENGTH,
     ):
         self.texts = texts
-        self.numeric_features = torch.tensor(numeric_features, dtype=torch.float32)
         self.labels = torch.tensor(labels, dtype=torch.long)
         self.vocab = vocab
         self.max_len = max_len
@@ -163,12 +149,12 @@ class FirewallLogDataset(Dataset):
     def __len__(self) -> int:
         return len(self.texts)
 
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
         text_indices = encode_text(self.texts[index], self.vocab, self.max_len)
-        return text_indices, self.numeric_features[index], self.labels[index]
+        return text_indices, self.labels[index]
 
 
-def prepare_data(csv_path: Path) -> tuple[FirewallLogDataset, LabelEncoder, StandardScaler, dict[str, int]]:
+def prepare_data(csv_path: Path) -> tuple[FirewallLogDataset, LabelEncoder, dict[str, int]]:
     df = pd.read_csv(csv_path)
 
     missing_columns = sorted(
@@ -184,55 +170,45 @@ def prepare_data(csv_path: Path) -> tuple[FirewallLogDataset, LabelEncoder, Stan
     vocab = build_vocab(texts)
 
     label_encoder = LabelEncoder()
-    labels = label_encoder.fit_transform(df[LABEL_COLUMN])
+    labels = label_encoder.fit_transform(df[LABEL_COLUMN]).tolist()
 
-    numeric_features, scaler = normalize_numeric_features(df)
-    dataset = FirewallLogDataset(texts, numeric_features, labels, vocab)
+    dataset = FirewallLogDataset(texts, labels, vocab)
 
     print(f"Ucitan skup: {csv_path.name}")
     print(f"Broj zapisa: {len(df)}")
     print(f"Broj tokena u vokabularu: {len(vocab)}")
     print(f"Klase: {list(label_encoder.classes_)}")
 
-    return dataset, label_encoder, scaler, vocab
+    return dataset, label_encoder, vocab
 
 
-class TextCNN(nn.Module):
+class BiLSTM(nn.Module):
     def __init__(
         self,
         vocab_size: int,
         embed_dim: int,
+        hidden_dim: int,
         num_classes: int,
-        num_numeric_features: int,
         pad_index: int,
-        kernel_sizes: list[int] | None = None,
-        num_filters: int = 100,
+        num_layers: int = 1,
         dropout: float = 0.5,
     ):
         super().__init__()
-        if kernel_sizes is None:
-            kernel_sizes = [3, 4, 5]
-
         self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=pad_index)
-        self.convs = nn.ModuleList(
-            [nn.Conv2d(1, num_filters, (kernel_size, embed_dim)) for kernel_size in kernel_sizes]
+        self.lstm = nn.LSTM(
+            embed_dim,
+            hidden_dim,
+            num_layers=num_layers,
+            batch_first=True,
+            bidirectional=True,
         )
-        self.numeric_norm = nn.LayerNorm(num_numeric_features)
         self.dropout = nn.Dropout(dropout)
-        self.fc = nn.Linear(num_filters * len(kernel_sizes) + num_numeric_features, num_classes)
+        self.fc = nn.Linear(hidden_dim * 2, num_classes)
 
-    def forward(self, text_inputs: torch.Tensor, numeric_inputs: torch.Tensor) -> torch.Tensor:
-        embedded = self.embedding(text_inputs)
-        embedded = embedded.unsqueeze(1)
-
-        conv_outputs = [F.relu(conv(embedded)).squeeze(3) for conv in self.convs]
-        pooled_outputs = [
-            F.max_pool1d(output, output.size(2)).squeeze(2) for output in conv_outputs
-        ]
-        text_features = torch.cat(pooled_outputs, dim=1)
-        numeric_features = self.numeric_norm(numeric_inputs)
-
-        features = torch.cat([text_features, numeric_features], dim=1)
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        embedded = self.embedding(inputs)
+        _, (hidden, _) = self.lstm(embedded)
+        features = torch.cat((hidden[-2], hidden[-1]), dim=1)
         features = self.dropout(features)
         return self.fc(features)
 
@@ -249,22 +225,21 @@ def format_duration(seconds: float) -> str:
 
 
 if __name__ == "__main__":
-    dataset, label_encoder, scaler, vocab = prepare_data(TRAIN_CSV)
+    dataset, label_encoder, vocab = prepare_data(TRAIN_CSV)
     dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model = TextCNN(
+    model = BiLSTM(
         vocab_size=len(vocab),
         embed_dim=100,
+        hidden_dim=128,
         num_classes=len(label_encoder.classes_),
-        num_numeric_features=len(NUMERIC_COLUMNS),
         pad_index=vocab[PAD_TOKEN],
     ).to(device)
 
-    labels_for_weights = dataset.labels
     criterion = nn.CrossEntropyLoss(
-        weight=class_weights(labels_for_weights, len(label_encoder.classes_)).to(device)
+        weight=class_weights(dataset.labels, len(label_encoder.classes_)).to(device)
     )
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
@@ -279,13 +254,12 @@ if __name__ == "__main__":
         correct = 0
         total = 0
 
-        for text_inputs, numeric_inputs, labels in dataloader:
-            text_inputs = text_inputs.to(device)
-            numeric_inputs = numeric_inputs.to(device)
+        for inputs, labels in dataloader:
+            inputs = inputs.to(device)
             labels = labels.to(device)
 
             optimizer.zero_grad()
-            outputs = model(text_inputs, numeric_inputs)
+            outputs = model(inputs)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
@@ -313,9 +287,10 @@ if __name__ == "__main__":
     )
 
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
-    torch.save(model.state_dict(), ARTIFACT_DIR / "textcnn_model_trained.pth") #naucene tezine textcnn modela
-    torch.save(vocab, ARTIFACT_DIR / "vocab_trained.pth") #vokabular tj. mapa tokena
-    torch.save(label_encoder, ARTIFACT_DIR / "label_encoder_trained.pth") #mapiranje labela u brojeve
-    torch.save(scaler, ARTIFACT_DIR / "numeric_scaler_trained.pth") #scaler za normalizaciju numeričkih značajki
+    torch.save(model.state_dict(), MODEL_PATH)
+    torch.save(vocab, VOCAB_PATH)
+    torch.save(label_encoder, LABEL_ENCODER_PATH)
 
-    print(f"Model i pomocni objekti spremljeni su u: {ARTIFACT_DIR}")
+    print(f"BiLSTM model spremljen u: {MODEL_PATH}")
+    print(f"BiLSTM vokabular spremljen u: {VOCAB_PATH}")
+    print(f"BiLSTM label encoder spremljen u: {LABEL_ENCODER_PATH}")

@@ -11,19 +11,15 @@ from torch.utils.data import DataLoader, Dataset
 
 
 BASE_DIR = Path(__file__).resolve().parent
-TRAINING_SCRIPT = BASE_DIR / "1_text_cnn_trening.py"
-TEST_CSV = BASE_DIR / "firewall_logs_labeled" / "2_Test_logs_combiend_labeled.csv"
+TRAINING_SCRIPT = BASE_DIR / "1_text_cnn_train.py"
+EVAL_CSV = BASE_DIR / "firewall_logs_labeled" / "2_eval_logs_combined_labeled.csv"
 ARTIFACT_DIR = BASE_DIR / "model_artifacts"
-RESULTS_DIR = BASE_DIR / "test_results"
+RESULTS_DIR = BASE_DIR / "eval_results"
 
 MODEL_PATH = ARTIFACT_DIR / "textcnn_model_trained.pth"
-VOCAB_PATH = ARTIFACT_DIR / "vocab_trained.pth"
-LABEL_ENCODER_PATH = ARTIFACT_DIR / "label_encoder_trained.pth"
-SCALER_PATH = ARTIFACT_DIR / "numeric_scaler_trained.pth"
-
-PREDICTIONS_CSV = RESULTS_DIR / "2_Test_logs_combiend_predictions.csv"
-METRICS_TXT = RESULTS_DIR / "2_Test_metrics.txt"
-CONFUSION_MATRIX_CSV = RESULTS_DIR / "2_Test_confusion_matrix.csv"
+VOCAB_PATH = ARTIFACT_DIR / "textcnn_vocab_trained.pth"
+LABEL_ENCODER_PATH = ARTIFACT_DIR / "textcnn_label_encoder_trained.pth"
+SCALER_PATH = ARTIFACT_DIR / "textcnn_numeric_scaler_trained.pth"
 
 BATCH_SIZE = 64
 
@@ -47,7 +43,7 @@ def format_duration(seconds: float) -> str:
     return f"{int(minutes)} min {remaining_seconds:.2f} s"
 
 
-class FirewallLogTestDataset(Dataset):
+class FirewallLogStageDataset(Dataset):
     def __init__(self, texts, numeric_features, labels, vocab, training_module):
         self.texts = texts
         self.numeric_features = torch.tensor(numeric_features, dtype=torch.float32)
@@ -79,7 +75,7 @@ def transform_numeric_features(df: pd.DataFrame, scaler, training_module) -> np.
     return scaler.transform(numeric_df).astype(np.float32)
 
 
-def prepare_test_data(csv_path: Path, vocab, label_encoder, scaler, training_module):
+def prepare_stage_data(csv_path: Path, vocab, label_encoder, scaler, training_module):
     df = pd.read_csv(csv_path)
 
     required_columns = (
@@ -98,11 +94,15 @@ def prepare_test_data(csv_path: Path, vocab, label_encoder, scaler, training_mod
     labels = label_encoder.transform(df[training_module.LABEL_COLUMN])
     numeric_features = transform_numeric_features(df, scaler, training_module)
 
-    dataset = FirewallLogTestDataset(texts, numeric_features, labels, vocab, training_module)
+    dataset = FirewallLogStageDataset(texts, numeric_features, labels, vocab, training_module)
     return df, dataset
 
 
-def evaluate():
+def evaluate(
+    csv_path: Path = EVAL_CSV,
+    stage: str = "eval",
+    results_dir: Path = RESULTS_DIR,
+):
     training_module = load_training_module()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -110,7 +110,7 @@ def evaluate():
     label_encoder = torch_load(LABEL_ENCODER_PATH)
     scaler = torch_load(SCALER_PATH)
 
-    df, dataset = prepare_test_data(TEST_CSV, vocab, label_encoder, scaler, training_module)
+    df, dataset = prepare_stage_data(csv_path, vocab, label_encoder, scaler, training_module)
     dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
 
     model = training_module.TextCNN(
@@ -130,7 +130,7 @@ def evaluate():
     all_true = []
     all_predictions = []
 
-    test_start = time.perf_counter()
+    stage_start = time.perf_counter()
     with torch.no_grad():
         for text_inputs, numeric_inputs, labels in dataloader:
             text_inputs = text_inputs.to(device)
@@ -147,7 +147,7 @@ def evaluate():
             all_true.extend(labels.cpu().numpy())
             all_predictions.extend(predictions.cpu().numpy())
 
-    test_duration = time.perf_counter() - test_start
+    stage_duration = time.perf_counter() - stage_start
     average_loss = total_loss / total
     accuracy = accuracy_score(all_true, all_predictions) * 100
 
@@ -168,31 +168,39 @@ def evaluate():
     df["predicted_label"] = predicted_labels
     df["prediction_correct"] = df[training_module.LABEL_COLUMN].eq(df["predicted_label"])
 
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    df.to_csv(PREDICTIONS_CSV, index=False)
-    matrix_df.to_csv(CONFUSION_MATRIX_CSV)
-    METRICS_TXT.write_text(
+    results_dir.mkdir(parents=True, exist_ok=True)
+    predictions_csv = results_dir / f"textcnn_{stage}_predictions.csv"
+    metrics_txt = results_dir / f"textcnn_{stage}_metrics.txt"
+    confusion_matrix_csv = results_dir / f"textcnn_{stage}_confusion_matrix.csv"
+
+    df.to_csv(predictions_csv, index=False)
+    matrix_df.to_csv(confusion_matrix_csv)
+    metrics_txt.write_text(
         (
-            f"Test skup: {TEST_CSV.name}\n"
+            "Model: TextCNN\n"
+            f"Stadij: {stage}\n"
+            f"Skup: {csv_path.name}\n"
             f"Broj zapisa: {len(dataset)}\n"
             f"Loss: {average_loss:.4f}\n"
             f"Accuracy: {accuracy:.2f}%\n"
-            f"Vrijeme testiranja: {format_duration(test_duration)}\n\n"
+            f"Vrijeme {stage}: {format_duration(stage_duration)}\n\n"
             f"{report}"
         ),
         encoding="utf-8",
     )
 
-    print(f"Ucitan test skup: {TEST_CSV.name}")
+    print("Model: TextCNN")
+    print(f"Stadij: {stage}")
+    print(f"Ucitan skup: {csv_path.name}")
     print(f"Broj zapisa: {len(dataset)}")
     print(f"Loss: {average_loss:.4f}")
     print(f"Accuracy: {accuracy:.2f}%")
-    print(f"Vrijeme testiranja: {format_duration(test_duration)}")
+    print(f"Vrijeme {stage}: {format_duration(stage_duration)}")
     print()
     print(report)
-    print(f"Predikcije spremljene u: {PREDICTIONS_CSV}")
-    print(f"Metrike spremljene u: {METRICS_TXT}")
-    print(f"Confusion matrix spremljen u: {CONFUSION_MATRIX_CSV}")
+    print(f"Predikcije spremljene u: {predictions_csv}")
+    print(f"Metrike spremljene u: {metrics_txt}")
+    print(f"Confusion matrix spremljen u: {confusion_matrix_csv}")
 
 
 if __name__ == "__main__":
