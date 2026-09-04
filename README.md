@@ -69,7 +69,7 @@ Preporuka je koristiti Python virtual env
 ```powershell
 python -m venv C:\venv-tfpu
 C:\venv-tfpu\Scripts\activate
-cd "C:\Users\Administrator\Desktop\TFPU\2. Godina\Diplomski\eksperiment_model"
+cd "eksperiment_model"
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
@@ -79,7 +79,7 @@ pip install -r requirements.txt
 Skripte se pokrecu iz foldera projekta redom: prvo treniranje, zatim evaluacija, a na kraju testiranje.
 
 ```powershell
-cd "C:\Users\Administrator\Desktop\TFPU\2. Godina\Diplomski\eksperiment_model"
+cd "\Diplomski\eksperiment_model"
 
 # TextCNN
 python 1_text_cnn_train.py
