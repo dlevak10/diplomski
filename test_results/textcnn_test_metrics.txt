@@ -1,0 +1,18 @@
+Model: TextCNN
+Stadij: test
+Skup: 3_test_logs_combined_labeled.csv
+Broj zapisa: 8154
+Loss: 0.3039
+Accuracy: 90.14%
+Vrijeme test: 0 min 4.01 s
+
+              precision    recall  f1-score   support
+
+ Brute Force       0.90      1.00      0.95       531
+        DDoS       0.75      1.00      0.86       900
+      Normal       0.92      1.00      0.96      5009
+   Port Scan       0.99      0.54      0.70      1714
+
+    accuracy                           0.90      8154
+   macro avg       0.89      0.88      0.86      8154
+weighted avg       0.92      0.90      0.89      8154

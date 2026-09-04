@@ -1,5 +1,5 @@
 ,Brute Force,DDoS,Normal,Port Scan
 Brute Force,531,0,0,0
 DDoS,0,900,0,0
-Normal,9,0,4994,6
-Port Scan,8,0,141,1565
+Normal,9,0,4996,4
+Port Scan,32,443,157,1082

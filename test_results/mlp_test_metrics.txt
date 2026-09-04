@@ -1,0 +1,18 @@
+Model: MLP
+Stadij: test
+Skup: 3_test_logs_combined_labeled.csv
+Broj zapisa: 8154
+Loss: 0.0218
+Accuracy: 99.44%
+Vrijeme test: 0 min 0.13 s
+
+              precision    recall  f1-score   support
+
+ Brute Force       1.00      1.00      1.00       531
+        DDoS       1.00      1.00      1.00       900
+      Normal       1.00      0.99      1.00      5009
+   Port Scan       0.97      1.00      0.99      1714
+
+    accuracy                           0.99      8154
+   macro avg       0.99      1.00      1.00      8154
+weighted avg       0.99      0.99      0.99      8154

@@ -1,0 +1,18 @@
+Model: BiLSTM
+Stadij: eval
+Skup: 2_eval_logs_combined_labeled.csv
+Broj zapisa: 8062
+Loss: 0.0659
+Accuracy: 99.12%
+Vrijeme eval: 0 min 2.63 s
+
+              precision    recall  f1-score   support
+
+ Brute Force       0.92      1.00      0.96       535
+        DDoS       1.00      1.00      1.00       900
+      Normal       1.00      1.00      1.00      5004
+   Port Scan       1.00      0.96      0.98      1623
+
+    accuracy                           0.99      8062
+   macro avg       0.98      0.99      0.98      8062
+weighted avg       0.99      0.99      0.99      8062
